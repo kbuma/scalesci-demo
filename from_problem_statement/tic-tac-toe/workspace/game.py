@@ -1,77 +1,79 @@
 from board import Board
-import random
+from player import Player
 
 class Game:
     def __init__(self):
         self.board = Board()
-        self.current_player = "X"
+        self.player = Player("Player", "X")
+        self.computer = Player("Computer", "O")
 
     def start_game(self):
         print("Welcome to Tic Tac Toe!")
-        self.board.initialize_board()
+        self.board.clear_board()
         self.display_board()
 
         while True:
-            if self.current_player == "X":
-                move = self.get_user_move()
-                self.make_user_move(move)
-            else:
-                self.make_computer_move()
-
-            self.display_board()
-
-            if self.check_game_over():
+            self.get_user_move()
+            if self.check_winner() or self.check_tie():
                 break
 
-            self.current_player = "O" if self.current_player == "X" else "X"
+            self.get_computer_move()
+            if self.check_winner() or self.check_tie():
+                break
 
-        self.ask_play_again()
+        self.play_again()
 
     def display_board(self):
         print("Current Board:")
-        for row in self.board.board:
-            print(" | ".join(row))
-            print("---------")
+        self.board.display()
 
     def get_user_move(self):
         while True:
-            move = input("Enter your move (row column): ")
-            try:
-                row, col = map(int, move.split())
-                if self.board.is_valid_move((row, col)):
-                    return (row, col)
+            position = input("Enter your move (1-9): ")
+            if position.isdigit() and 1 <= int(position) <= 9:
+                position = int(position)
+                if self.board.is_position_empty(position):
+                    self.make_move(self.player, position)
+                    break
                 else:
-                    print("Invalid move. Please try again.")
-            except ValueError:
-                print("Invalid input. Please enter row and column numbers.")
+                    print("That position is already taken. Try again.")
+            else:
+                print("Invalid input. Try again.")
 
-    def make_user_move(self, move):
-        self.board.update_board(move, "X")
+    def get_computer_move(self):
+        position = self.board.get_random_empty_position()
+        self.make_move(self.computer, position)
 
-    def make_computer_move(self):
-        empty_squares = self.board.get_empty_squares()
-        move = random.choice(empty_squares)
-        self.board.update_board(move, "O")
+    def make_move(self, player, position):
+        self.board.make_move(player, position)
+        self.display_board()
 
-    def check_game_over(self):
-        if self.board.check_winner("X"):
-            print("You win!")
+    def check_winner(self):
+        if self.board.is_winner(self.player):
+            print(f"{self.player.get_name()} wins!")
             return True
-        elif self.board.check_winner("O"):
-            print("Computer wins!")
+        elif self.board.is_winner(self.computer):
+            print(f"{self.computer.get_name()} wins!")
             return True
-        elif self.board.is_board_full():
-            print("It's a draw!")
-            return True
-        else:
-            return False
+        return False
 
-    def ask_play_again(self):
-        play_again = input("Do you want to play again? (yes/no): ")
-        if play_again.lower() == "yes":
-            self.start_game()
-        else:
-            print("Thank you for playing!")
+    def check_tie(self):
+        if self.board.is_board_full():
+            print("It's a tie!")
+            return True
+        return False
+
+    def play_again(self):
+        while True:
+            choice = input("Do you want to play again? (y/n): ")
+            if choice.lower() == "y":
+                self.start_game()
+                break
+            elif choice.lower() == "n":
+                print("Thank you for playing Tic Tac Toe!")
+                break
+            else:
+                print("Invalid input. Try again.")
 
 if __name__ == "__main__":
     game = Game()
