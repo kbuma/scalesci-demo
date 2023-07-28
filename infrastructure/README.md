@@ -2,13 +2,9 @@
 
 1. Set up your k8s cluster, install helm client and configure it for your cluster.
 
-    The following instructions assume:
-    - that you've set up your KUBECONFIG 
-    - that you've created a k8s namespace called `scalesci`
+2. Create and tag image from the provided `Dockerfile`. 
 
-2. Create and tag image from the provided `Dockerfile`. We'll assume it's tagged as `scalesci-demo:latest`.
-
-3. Upload the image to a registry and tag it. We'll assume the registry alias is `scalesci`
+3. Upload the image to a registry and tag it. 
 
 4. Copy the `config.yaml` to `values.yaml`
 
