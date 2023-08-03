@@ -1,0 +1,4 @@
+I have this scientific computation that I wrote. 
+I would like to optimize it such that it runs faster (utilizing parallel computation) and is more interactive.
+I will be running this on an HPC system that has support for dask and slurm.
+I will want to interact with the computation via a Jupyter notebook.

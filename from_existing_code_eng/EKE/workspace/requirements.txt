@@ -1,0 +1,5 @@
+pytest
+numpy
+xarray
+scipy
+dask

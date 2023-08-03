@@ -1,0 +1,7 @@
+numpy
+xarray
+wrf-python
+netCDF4
+matplotlib
+scipy
+dask
