@@ -1,0 +1,36 @@
+FROM jupyter/scipy-notebook
+
+USER root
+
+WORKDIR /tmp
+
+# nbgitpuller to enable auto-populate from scalesci-demo
+RUN pip install --no-cache-dir nbgitpuller openai ipylab
+
+# clone and install gpt-engineer
+RUN git clone https://github.com/kbuma/gpt-engineer.git && \
+    cd gpt-engineer && \
+    pip install --no-cache-dir . && \
+    cd .. && \
+    rm -rf gpt-engineer && \
+    cd /tmp && \
+    rm -rf /tmp/gpt-engineer && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+
+# clone and install jupyter-ai
+RUN git clone https://github.com/kbuma/jupyter-ai.git && \
+    cd jupyter-ai && \
+    ./scripts/install.sh && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}" && \
+    cd .. && \
+    rm -rf jupyter-ai
+
+#RUN cd "${HOME}" && \
+#    git clone https://github.com/kbuma/scalesci-demo && \
+#    fix-permissions "/home/${NB_USER}/scalesci-demo"
+
+# set things back to way scipy left them
+USER ${NB_UID}
+WORKDIR "${HOME}"
