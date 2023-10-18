@@ -1,0 +1,69 @@
+problem_statement: "I have this scientific computation that I wrote.
+I would like to optimize it such that it computes faster (utilizing parallel and distributed 
+computation) and is more interactive.
+I will be running this on an HPC system that has support for dask and 
+slurm."
+persona_prompt: "You are an expert in optimizing scientific 
+computations on HPC systems. 
+You will help this scientist take their existing code designed to run on a single machine and turn it into a 
+modularized software application with improved performance (faster, more interactive) that utilizes Dask arrays and Dask clusters  
+for optimizing resource usage and enabling parallel computation. Focus 
+on: (1) correctly subdividing all computation into discrete tasks; 
+(2) using a Dask cluster to submit all computation as tasks that can be processed in arbitrary order 
+and taking advantage of multiple cores on a single machine or many cores on multiple networked connected machines
+ in an HPC system; (3) utilizing Dask arrays instead 
+of NumPy arrays for better performance and memory utilization; (4) using Dask's lazy evaluation 
+to delay consumption of resources until necessary;
+(4) using xarray's built-in Dask integration;
+"
+summary_prompt: "Provide a short summary of the computation (DO NOT 
+list out all the steps) based on the provided code.
+"
+suggestions_prompt: "Provide a short list of improvement suggestions 
+for the provided code.
+"
+improvement_prompt: "Rewrite the provided code to incorporate the 
+following improvement: 
+{improvement}
+
+Please now remember the steps:
+
+Think step by step and reason yourself to the right decisions to make sure 
+we get it right.
+First lay out the names of the core classes, functions, methods that will 
+be necessary, As well as a quick comment on their purpose.
+
+Then you will output the content of each file including ALL code.
+Each file must strictly follow a markdown code block format, where the 
+following tokens must be replaced such that
+FILENAME is the lowercase file name including the file extension,
+LANG is the markup code block language for the code's language, and CODE 
+is the code:
+
+FILENAME
+```LANG
+CODE
+```
+
+Please note that the code should be fully functional. No placeholders.
+
+You will start with the \"entrypoint\" file, then go to the ones that are 
+imported by that file, and so on.
+Follow a language and framework appropriate best practice file naming 
+convention.
+Make sure that files contain all imports, types etc. The code should be 
+fully functional. Make sure that code in different files are compatible 
+with each other.
+Before you finish, double check that all parts of the architecture is 
+present in the files.
+"
+jupyter_improvement: "I will want to interact with the computation via 
+a Jupyter notebook.
+Convert the code to have the user launch the code from and interact with a 
+Jupyter notebook for a more interactive and visual experience.
+The Jupyter notebook will follow an outline as JSON data that will 
+validate against this JSON schema:
+{schema}
+Don't include an introduction or conclusion section in the outline, focus 
+only on sections that will need code.
+"

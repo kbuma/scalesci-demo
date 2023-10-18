@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  jupyterlab:
+    build: 
+      context: ./
+      dockerfile: Dockerfile.jupyterlab
+    volumes:
+      - ./://home/jovyan/scalesci-demo
+    ports:
+      - 58888:8888
