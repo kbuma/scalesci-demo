@@ -6,6 +6,8 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import time
+import threading
 import warnings
 
 import gpt_engineer.steps as steps
@@ -18,7 +20,6 @@ from jupyter_ai.chat_handlers.generate import schema
 import jupyter_core
 import openai
 import yaml
-
 
 logging.basicConfig(filename='scalesci.log', level=logging.INFO)
 logger = logging.getLogger()
@@ -33,6 +34,12 @@ def read_file_to_string(file_path):
     except FileNotFoundError:
         logger.info(f"{file_path} not found.")
         return None
+
+class MockAIMessage:
+    content: str
+    def __init__(self, value=None):
+        if value is None:
+            raise Exception("No message value")
 
 
 class ScaleSciProjectWidget(widgets.VBox):
@@ -126,6 +133,7 @@ class ScaleSciProjectWidget(widgets.VBox):
         self.implement_notebook_request_button = widgets.Button(
             description='Generate Jupyter Notebook', button_style='', layout=self.width_auto_layout, disabled=True)
         self.implement_notebook_request_button.on_click(self.implement_notebook)
+        self.implement_activity_area = widgets.HTML()
         self.log_area = widgets.Textarea(
             value='', description='', disabled=True, layout=self.parent_layout)
         self.setup_box = widgets.VBox(children = [
@@ -146,6 +154,7 @@ class ScaleSciProjectWidget(widgets.VBox):
                     self.suggestions_request_button,
                     self.implement_request_button,
                     self.implement_notebook_request_button]),
+                self.implement_activity_area,
                 self.suggestions_area],
             layout=self.parent_layout)
         self.message_box = widgets.VBox(
@@ -224,7 +233,9 @@ class ScaleSciProjectWidget(widgets.VBox):
                 elif self.project_input.style.text_color == 'red':
                     self.project_input.style.text_color = 'black'
                 self.data_model.project_name = self.project_input.value
+                self.data_model.start_message_log()
                 self.callbacks['session']()
+                self.data_model.ai_connection = True
                 self.update_logs()
                 self.project_workspace_shortcut.disabled = False
                 self.project_input.disabled = True
@@ -248,7 +259,15 @@ class ScaleSciProjectWidget(widgets.VBox):
                 self.suggestions_request_button.disabled = True
                 self.implement_request_button.disabled = True
                 self.implement_notebook_request_button.disabled = True
+                self.data_model.ai_connection = False
                 display(self)
+
+    def suggestions_activity_handler(self, change):
+        print(change)
+
+    def message_log_handler(self, change):
+        i = change['old'] - change['new']
+        print(self.data_model.ai_message_log[i:])
 
     def get_summary(self, b):
         with self.out:
@@ -261,9 +280,21 @@ class ScaleSciProjectWidget(widgets.VBox):
 
     def get_improvement_suggestions(self, b):
         with self.out:
-            self.suggestions_area.children = tuple([widgets.HTML("<div>Gathering Suggestions</div>")])
-            display(self)
+            self.implement_activity_area.value = "<div>Gathering Suggestions</div>"
+
+        def work(ref, stop=None):
+            while not stop():
+                time.sleep(1)
+                ref.implement_activity_area.value = ref.implement_activity_area.value.replace("</div>", ".</div>")
+
+        stop_updating = False
+        thread = threading.Thread(target=work, args=(self, lambda: stop_updating))
+        thread.start()
         self.callbacks['improvements']()
+        stop_updating = True
+        thread.join()
+        with self.out:
+            self.implement_activity_area.value = "<div>Received Suggestions</div>"
         self.update_logs()
         with self.out:
             children = []
@@ -272,8 +303,10 @@ class ScaleSciProjectWidget(widgets.VBox):
             for i in range(1,len(self.data_model.ai_suggestions)):
                 k = str(i)
                 cb = widgets.Checkbox(
-                    value=False, description=self.data_model.ai_suggestions[k]['label'], indent=False)
-                cb.style.description_width = 'auto'
+                    value=False,
+                    description=self.data_model.ai_suggestions[k]['label'],
+                    indent=False,
+                    layout=self.width_auto_layout)
                 self.data_model.ai_suggestions[k]['checkbox'] = cb
 
             for i in range(1, len(self.data_model.ai_suggestions)):
@@ -299,7 +332,63 @@ class ScaleSciProjectWidget(widgets.VBox):
             for i in range(1, len(self.suggestions_area.children), 2):
                 self.suggestions_area.children[i].disabled = True
 
+        def work(ref=None, stop=None):
+            implemented_state = {}
+            steps_order = [str(i) for i in range(1, len(ref.data_model.ai_suggestions))]
+            for i in range(1, len(ref.data_model.ai_suggestions)):
+                k = str(i)
+                implemented_state[k] = ref.data_model.ai_suggestions[k]['implemented']
+                if not ref.data_model.ai_suggestions[k]['checkbox'].value or implemented_state[k]:
+                    steps_order.remove(k)
+            active_step = 0
+            while ref.implement_request_button.disabled and not stop():
+                time.sleep(1)
+                update = False
+                with (ref.out):
+                    for i in range(1, len(ref.suggestions_area.children), 2):
+                        if isinstance(ref.suggestions_area.children[i], widgets.Checkbox):
+                            k = ref.suggestions_area.children[i].description.split('.', 1)[0]
+                            if k not in implemented_state:
+                                implemented_state[k] = ref.data_model.ai_suggestions[k]['implemented']
+                            elif implemented_state[k] != ref.data_model.ai_suggestions[k]['implemented']:
+                                update = True
+                                implemented_state[k] = ref.data_model.ai_suggestions[k]['implemented']
+                                with ref.out:
+                                    if active_step < len(steps_order) - 1:
+                                        active_step += 1
+                                        ref.implement_activity_area.value = \
+                                            "<div>Received Implementation for Step {}, Working on Step {}</div>".format(
+                                                k, steps_order[active_step])
+                                    else:
+                                        ref.implement_activity_area.value = \
+                                            "<div>Received Implementation for Step {}</div>".format(k)
+                                print("{}: {}".format(
+                                    ref.suggestions_area.children[i].description,
+                                    ref.data_model.ai_suggestions[k]['implemented']))
+                                ref.suggestions_area.children[i].description = \
+                                    ref.suggestions_area.children[i].description + ' --> Implemented'
+                                ref.suggestions_area.children[i + 1].style.text_color = 'green'
+                    if update:
+                        print(active_step)
+                        print(steps_order)
+                        ref.implement_activity_area.value = "<div>{}</div>".format(
+                            ref.data_model.ai_suggestions[steps_order[active_step]]['status'])
+                    else:
+                        ref.implement_activity_area.value = \
+                            ref.implement_activity_area.value.replace("</div>", ".</div>")
+                    display(ref)
+            with ref.out:
+                ref.implement_activity_area.value = \
+                    "<div>Implementations complete</div>"
+
+        stop_updates = False
+        thread = threading.Thread(target=work, args=(self, lambda: stop_updates))
+        thread.start()
+        with self.out:
+            self.implement_activity_area.value = "<div>Requesting Implementations</div>"
         self.callbacks['implement']()
+        stop_updates = True
+        thread.join()
 
         if self.data_model.ai_connection:
             self.show_workspace(b)
@@ -333,7 +422,7 @@ class ScaleSciProjectWidget(widgets.VBox):
         self.callbacks['implement_notebook']()
         self.show_workspace(b)
         self.update_logs()
-        implemented = 0
+        #implemented = 0
         with self.out:
             for i in range(1, len(self.suggestions_area.children), 2):
                 if isinstance(self.suggestions_area.children[i], widgets.Checkbox):
@@ -381,12 +470,16 @@ class ScaleSciCollabModel:
     ai_summary: str = None
     ai_suggestions: dict = None
     ai_message_log: list = None
+    ai_connection: bool = False
 
     def generate_project_name(self):
         self.project_name = "ScaleSci-AI-Collab-{}".format(datetime.datetime.now().isoformat())
 
     def get_project_path(self):
         return Path(self.project_name)
+
+    def start_message_log(self):
+        self.ai_message_log = []
 
     def get_db_improvement(self, should_pop=False):
         try:
@@ -416,7 +509,8 @@ class ScaleSciCollabModel:
             'intro': {
                 'label': lines[0],
                 'description': '',
-                'implemented': False
+                'implemented': False,
+                'status': ''
                 }
             }
 
@@ -431,23 +525,30 @@ class ScaleSciCollabModel:
                 self.ai_suggestions['intro'] = {
                     'label': scrubbed_line,
                     'description': '',
-                    'implemented': False
+                    'implemented': False,
+                    'status': ''
                     }
                 continue
 
             try:
-                label, description = scrubbed_line.split(':')
-                label = label.strip()
+                if ':' in scrubbed_line:
+                    label, description = scrubbed_line.split(':', 1)
+                    label = label.strip()
+                    description = description.strip()
+                else:
+                    label = scrubbed_line.strip()
+                    description = ''
                 num = label.split('.', 1)[0]
-                description = description.strip()
             except Exception as e:
+                print(scrubbed_line)
                 logger.exception(e)
                 raise
 
             self.ai_suggestions[num] = {
                 'label': label,
                 'description': description,
-                'implemented': False
+                'implemented': False,
+                'status': ''
                 }
         logger.info(self.ai_suggestions)
 
@@ -456,7 +557,7 @@ class ScaleSciCollabModel:
         improvement_strings = []
         for i in range(1,len(self.ai_suggestions)):
             k = str(i)
-            if self.ai_suggestions[k]['checkbox'].value:
+            if self.ai_suggestions[k]['checkbox'].value and not self.ai_suggestions[k]['implemented']:
                 selected_improvements.append(i)
                 improvement_strings.append(
                     f"{self.ai_suggestions[k]['label']}: {self.ai_suggestions[k]['description']}\n")
@@ -531,7 +632,6 @@ class ScaleSciCollabProject:
             datetime.datetime.now().isoformat(), self.data_model.project_name, self.data_model.starting_code_location,
             workspace_path)
 
-
     def all_code_from_files(self, path):
         chat = "These are the files implementing the code\n"
         directory_path = path
@@ -545,7 +645,6 @@ class ScaleSciCollabProject:
             chat += f"**{file_name}**\n```{file_content}\n```\n\n"
         return chat
 
-
     # customization of steps one
     def setup_sys_prompt(self):
         return (
@@ -554,7 +653,6 @@ class ScaleSciCollabProject:
                 self.data_model.dbs.preprompts["philosophy"]
                 )
         )
-
 
     def send_and_recieve_messages_with_ai_collaborator(self, prompt, log_key):
         if prompt is None:
@@ -570,11 +668,16 @@ class ScaleSciCollabProject:
             self.data_model.ai.fsystem(prompt),
             ]
         logger.info("Sending messages to AI model: {}".format(messages_out))
+        self.data_model.ai_message_log.append(messages_out)
         messages_in = self.data_model.ai.next(
             messages_out, prompt, step_name=steps.curr_fn()
             )
         if messages_in:
             self.data_model.dbs.logs[log_key] = AI.serialize_messages(messages_in)
+            self.data_model.ai_message_log.append(messages_in)
+        else:
+            messages_in = [MockAIMessage("We did not receive a response from our AI Collaborator")]
+            self.data_model.ai_message_log.append()
         return messages_in
 
     def get_summary(self, b=None):
@@ -604,7 +707,7 @@ class ScaleSciCollabProject:
         logger.info("Processing improvements:")
         for i in range(len(selected_improvements)):
             msgs = self.implement_improvement()
-            if msgs is None:
+            if msgs is None or not self.data_model.ai_connection:
                 break
         logger.info("Final result is located in: " + str(self.data_model.dbs.workspace.path))
 
@@ -613,48 +716,62 @@ class ScaleSciCollabProject:
         improvement = self.data_model.get_db_improvement(should_pop=True)
         if improvement is None:
             return None
-        logger.info("Preparing messages for our AI Collaborator")
-        messages = [
+        current_step = improvement.split('.', 1)[0]
+        self.data_model.ai_suggestions[current_step]['status'] = "Preparing messages for our AI Collaborator"
+        messages_out = [
             self.data_model.ai.fsystem(self.setup_sys_prompt()),
             self.data_model.ai.fuser(f"Instructions: {self.data_model.ai_prompts['problem_statement']}"),
             self.data_model.ai.fuser(code_output),
             self.data_model.ai.fsystem(self.data_model.dbs.preprompts["generate"]),
             ]
-        logger.info("Saving an archive of our current state")
+        self.data_model.ai_message_log.append(messages_out)
+        self.data_model.ai_suggestions[current_step]['status'] = "Saving an archive of our current state"
         steps.archive(self.data_model.dbs)
-        logger.info("Sending messages to our AI Collaborator and waiting for a response...")
-        messages = self.data_model.ai.next(
-            messages, self.data_model.ai_prompts['improvement_prompt'].format(
+        self.data_model.ai_suggestions[current_step]['status'] = \
+            "Sending messages to our AI Collaborator and waiting for a response..."
+        messages_in = self.data_model.ai.next(
+            messages_out, self.data_model.ai_prompts['improvement_prompt'].format(
                 improvement=improvement), step_name=steps.curr_fn()
             )
-        if messages:
-            logger.info("Our AI Collaborator has responded with updates")
-            self.data_model.dbs.logs['implement_improvement'] = AI.serialize_messages(messages)
+        if messages_in:
+            logger.info(messages_in)
+            self.data_model.ai_message_log.append(messages_in)
+            self.data_model.ai_suggestions[current_step]['status'] = "Our AI Collaborator has responded with updates"
+            self.data_model.dbs.logs['implement_improvement'] = AI.serialize_messages(messages_in)
             self.data_model.ai_suggestions[improvement.split('.', 1)[0]]['implemented'] = True
-            logger.info("Saving updates to our workspace area")
-            steps.to_files(messages[-1].content.strip(), self.data_model.dbs.workspace)
+            self.data_model.ai_suggestions[current_step]['status'] = "Saving updates to our workspace area"
+            steps.to_files(messages_in[-1].content.strip(), self.data_model.dbs.workspace)
             self.data_model.ai_connection = True
         else:
-            logger.info("We did not receive a response from our AI Collaborator")
+            failed_response = "We did not receive a response from our AI Collaborator"
+            logger.info(failed_response)
+            self.data_model.ai_message_log.append(failed_response)
+            self.data_model.ai_suggestions[current_step]['status'] = failed_response
             self.data_model.ai_connection = False
-        return messages
+        return messages_in
 
     def implement_jupyter_improvement(self):
         code_output = self.data_model.dbs.workspace["all_output.txt"]
-        messages = [
+        messages_out = [
             self.data_model.ai.fsystem(self.setup_sys_prompt()),
             self.data_model.ai.fuser(f"Instructions: {self.data_model.ai_prompts['problem_statement']}"),
             self.data_model.ai.fuser(code_output),
             self.data_model.ai.fsystem(self.data_model.dbs.preprompts["generate"]),
             ]
         steps.archive(self.data_model.dbs)
-        messages = self.data_model.ai.next(
-            messages,
+        self.data_model.ai_message_log.append(messages_out)
+        messages_in = self.data_model.ai.next(
+            messages_out,
             self.data_model.ai_prompts['improvement_prompt'].format(
                 improvement=self.data_model.ai_prompts['jupyter_improvement'].format(schema=schema)),
             step_name=steps.curr_fn()
             )
-        if messages:
-            self.data_model.dbs.logs['implement_jupyter_improvement'] = AI.serialize_messages(messages)
-        steps.to_files(messages[-1].content.strip(), self.data_model.dbs.workspace)
-        return messages
+        if messages_in:
+            self.data_model.dbs.logs['implement_jupyter_improvement'] = AI.serialize_messages(messages_in)
+            steps.to_files(messages[-1].content.strip(), self.data_model.dbs.workspace)
+            self.data_model.ai_message_log.append(messages_in)
+        else:
+            failed_response = "We did not receive a response from our AI Collaborator"
+            self.data_model.ai_message_log.append(failed_response)
+            self.data_model.ai_connection = False
+        return messages_in
